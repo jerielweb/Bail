@@ -1,9 +1,10 @@
 import NodeCache from '@cacheable/node-cache'
 import { Boom } from '@hapi/boom'
 import { proto } from '../../WAProto/index.js'
-import { DEFAULT_CACHE_TTLS, WA_DEFAULT_EPHEMERAL } from '../Defaults'
+import { DEFAULT_CACHE_TTLS, NO_GROUP_METADATA_CACHE, WA_DEFAULT_EPHEMERAL } from '../Defaults'
 import type {
 	AnyMessageContent,
+	GroupMetadata,
 	MediaConnInfo,
 	MessageReceiptType,
 	MessageRelayOptions,
@@ -78,6 +79,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		options: httpRequestOptions,
 		patchMessageBeforeSending,
 		cachedGroupMetadata,
+		disableLinkPreviews,
 		enableRecentMessageCache,
 		maxMsgRetryCount
 	} = config
@@ -108,11 +110,53 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 	const userDevicesCache =
 		config.userDevicesCache ||
 		new NodeCache<JidWithDevice[]>({
-			stdTTL: DEFAULT_CACHE_TTLS.USER_DEVICES, // 5 minutes
+			stdTTL: DEFAULT_CACHE_TTLS.USER_DEVICES,
 			useClones: false
 		})
 	/** Serializes writes to userDevicesCache across USync refresh and device-notification handling. */
 	const devicesMutex = makeMutex()
+
+	/**
+	 * Built-in group metadata cache, active only when the caller supplied none.
+	 *
+	 * Without a cache, every single group send pays a full `groupMetadata` IQ round
+	 * trip before it can encrypt (see relayMessage below). Expiry alone would be an
+	 * unsafe way to keep this fresh — a participant added between sends must not be
+	 * missed, or the message is encrypted without them and they cannot read it — so
+	 * entries are dropped on the group events instead, and the TTL is just a backstop.
+	 */
+	const internalGroupMetadataCache =
+		cachedGroupMetadata === NO_GROUP_METADATA_CACHE
+			? new NodeCache<GroupMetadata>({ stdTTL: DEFAULT_CACHE_TTLS.GROUP_METADATA, useClones: false })
+			: undefined
+
+	const getCachedGroupMetadata = async (jid: string) => {
+		if (internalGroupMetadataCache) {
+			return internalGroupMetadataCache.get(jid)
+		}
+
+		return cachedGroupMetadata(jid)
+	}
+
+	const rememberGroupMetadata = (jid: string, metadata: GroupMetadata | undefined) => {
+		if (internalGroupMetadataCache && metadata) {
+			internalGroupMetadataCache.set(jid, metadata)
+		}
+	}
+
+	if (internalGroupMetadataCache) {
+		ev.on('groups.update', updates => {
+			for (const update of updates) {
+				if (update.id) {
+					internalGroupMetadataCache.del(update.id)
+				}
+			}
+		})
+
+		ev.on('group-participants.update', ({ id }) => {
+			internalGroupMetadataCache.del(id)
+		})
+	}
 
 	// Initialize message retry manager if enabled
 	const messageRetryManager = enableRecentMessageCache ? new MessageRetryManager(logger, maxMsgRetryCount) : null
@@ -709,11 +753,12 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			if (isGroupOrStatus && !isRetryResend) {
 				const [groupData, senderKeyMap] = await Promise.all([
 					(async () => {
-						let groupData = useCachedGroupMetadata && cachedGroupMetadata ? await cachedGroupMetadata(jid) : undefined // todo: should we rely on the cache specially if the cache is outdated and the metadata has new fields?
+						let groupData = useCachedGroupMetadata ? await getCachedGroupMetadata(jid) : undefined // todo: should we rely on the cache specially if the cache is outdated and the metadata has new fields?
 						if (groupData && Array.isArray(groupData?.participants)) {
 							logger.trace({ jid, participants: groupData.participants.length }, 'using cached group metadata')
 						} else if (!isStatus) {
 							groupData = await groupMetadata(jid) // TODO: start storing group participant list + addr mode in Signal & stop relying on this
+							rememberGroupMetadata(jid, groupData)
 						}
 
 						return groupData
@@ -1252,6 +1297,8 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			userDevicesCache.close()
 		}
 
+		internalGroupMetadataCache?.close()
+
 		mediaConn = undefined
 		if (messageRetryManager) {
 			messageRetryManager.clear()
@@ -1345,16 +1392,19 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				const fullMsg = await generateWAMessage(jid, content, {
 					logger,
 					userJid,
-					getUrlInfo: text =>
-						getUrlInfo(text, {
-							thumbnailWidth: linkPreviewImageThumbnailWidth,
-							fetchOpts: {
-								timeout: 3_000,
-								...(httpRequestOptions || {})
-							},
-							logger,
-							uploadImage: generateHighQualityLinkPreview ? waUploadToServer : undefined
-						}),
+					// undefined short-circuits generateLinkPreviewIfRequired, so no fetch is issued
+					getUrlInfo: disableLinkPreviews
+						? undefined
+						: text =>
+								getUrlInfo(text, {
+									thumbnailWidth: linkPreviewImageThumbnailWidth,
+									fetchOpts: {
+										timeout: 3_000,
+										...(httpRequestOptions || {})
+									},
+									logger,
+									uploadImage: generateHighQualityLinkPreview ? waUploadToServer : undefined
+								}),
 					//TODO: CACHE
 					getProfilePicUrl: sock.profilePictureUrl,
 					getCallLink: sock.createCallLink,
