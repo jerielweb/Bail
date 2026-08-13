@@ -301,6 +301,11 @@ export const toBuffer = async (stream: Readable) => {
 	return Buffer.concat(chunks)
 }
 
+/**
+ * Every source is handed back as a stream and never materialised in memory: media
+ * is encrypted chunk by chunk into a temp file and uploaded straight off disk, so
+ * upload size is bounded by disk, not by RAM or by Buffer's length ceiling.
+ */
 export const getStream = async (item: WAMediaUpload, opts?: RequestInit & { maxContentLength?: number }) => {
 	if (Buffer.isBuffer(item)) {
 		return { stream: toReadable(item), type: 'buffer' } as const
@@ -352,7 +357,19 @@ export async function generateThumbnail(
 
 			await fs.unlink(imgFilename)
 		} catch (err) {
-			options.logger?.debug('could not generate video thumb: ' + err)
+			// Decoding a video frame needs a real decoder, so unlike duration and
+			// dimensions there is no in-process fallback: no ffmpeg means no thumbnail,
+			// and the video ships as a blank bubble. Warn rather than hide it at debug,
+			// because a missing binary is a fixable setup problem, not a bad file.
+			const isMissingBinary = /not recognized|not found|ENOENT/i.test(String(err))
+			if (isMissingBinary) {
+				options.logger?.warn(
+					{ err },
+					'ffmpeg not found on PATH; sending video without a thumbnail. Install ffmpeg to get one.'
+				)
+			} else {
+				options.logger?.warn({ err }, 'could not generate video thumbnail')
+			}
 		}
 	}
 
