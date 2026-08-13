@@ -41,6 +41,7 @@ import {
 	type MediaDownloadOptions
 } from './messages-media'
 import { shouldIncludeReportingToken } from './reporting-utils'
+import { getVideoMetadata } from './video-metadata'
 
 type ExtractByKey<T, K extends PropertyKey> = T extends Record<K, any> ? T : never
 type RequireKey<T, K extends keyof T> = T & {
@@ -220,13 +221,18 @@ export const prepareWAMessageMedia = async (
 		return obj
 	}
 
-	const requiresDurationComputation = mediaType === 'audio' && typeof uploadData.seconds === 'undefined'
+	const requiresDurationComputation =
+		(mediaType === 'audio' || mediaType === 'video') && typeof uploadData.seconds === 'undefined'
 	const requiresThumbnailComputation =
 		(mediaType === 'image' || mediaType === 'video') && typeof uploadData['jpegThumbnail'] === 'undefined'
+	/** WhatsApp lays out the video bubble from these; without them it renders a flat grey box. */
+	const requiresVideoDimensions =
+		mediaType === 'video' && (typeof uploadData.width === 'undefined' || typeof uploadData.height === 'undefined')
 	const requiresWaveformProcessing =
 		mediaType === 'audio' && uploadData.ptt === true && typeof uploadData.waveform === 'undefined'
 	const requiresAudioBackground = options.backgroundColor && mediaType === 'audio' && uploadData.ptt === true
-	const requiresOriginalForSomeProcessing = requiresDurationComputation || requiresThumbnailComputation
+	const requiresOriginalForSomeProcessing =
+		requiresDurationComputation || requiresThumbnailComputation || requiresVideoDimensions
 	const { mediaKey, encFilePath, originalFilePath, fileEncSha256, fileSha256, fileLength } = await encryptedStream(
 		uploadData.media,
 		options.mediaTypeOverride || mediaType,
@@ -266,9 +272,25 @@ export const prepareWAMessageMedia = async (
 					logger?.debug('generated thumbnail')
 				}
 
-				if (requiresDurationComputation) {
-					uploadData.seconds = await getAudioDuration(originalFilePath!)
-					logger?.debug('computed audio duration')
+				if (requiresDurationComputation || requiresVideoDimensions) {
+					if (mediaType === 'video') {
+						// one container read yields both, so they are resolved together
+						const { seconds, width, height } = await getVideoMetadata(originalFilePath!, logger)
+
+						if (requiresDurationComputation && seconds) {
+							uploadData.seconds = seconds
+						}
+
+						if (requiresVideoDimensions && width && height) {
+							uploadData.width = width
+							uploadData.height = height
+						}
+
+						logger?.debug({ seconds, width, height }, 'read video metadata')
+					} else if (requiresDurationComputation) {
+						uploadData.seconds = await getAudioDuration(originalFilePath!)
+						logger?.debug('computed audio duration')
+					}
 				}
 
 				if (requiresWaveformProcessing) {
