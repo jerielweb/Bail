@@ -145,6 +145,15 @@ export type SocketConfig = {
 	/** cached group metadata, use to prevent redundant requests to WA & speed up msg sending */
 	cachedGroupMetadata: (jid: string) => Promise<GroupMetadata | undefined>
 
+	/**
+	 * Skip link preview generation entirely.
+	 *
+	 * Any text containing a URL otherwise blocks the send while `getUrlInfo` fetches
+	 * the page (3s timeout, up to 5 redirects), and with generateHighQualityLinkPreview
+	 * it also uploads a thumbnail before the text goes out.
+	 */
+	disableLinkPreviews: boolean
+
 	makeSignalRepository: (
 		auth: SignalAuthState,
 		logger: ILogger,
