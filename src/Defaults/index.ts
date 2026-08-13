@@ -55,8 +55,24 @@ export const DEFAULT_CACHE_TTLS = {
 	SIGNAL_STORE: 5 * 60, // 5 minutes
 	MSG_RETRY: 60 * 60, // 1 hour
 	CALL_OFFER: 5 * 60, // 5 minutes
-	USER_DEVICES: 5 * 60 // 5 minutes
+	/**
+	 * 1 hour. Safe to keep long: the device list is not kept fresh by expiry but by
+	 * the server, which pushes a <notification type="devices"> whenever a contact
+	 * links or unlinks a device — handleDevicesNotification then drops the entry.
+	 * The TTL is only a backstop for a missed notification, so a short one just
+	 * forces avoidable USync round trips onto the send path.
+	 */
+	USER_DEVICES: 60 * 60,
+	/** 5 minutes. Backstop only — entries are dropped on group update events. */
+	GROUP_METADATA: 5 * 60
 }
+
+/**
+ * Sentinel default for `cachedGroupMetadata`. Identity-compared so the socket can
+ * tell "user supplied no cache" from "user supplied a cache that missed", which a
+ * plain `async () => undefined` cannot express.
+ */
+export const NO_GROUP_METADATA_CACHE = async () => undefined
 
 export const DEFAULT_CONNECTION_CONFIG: SocketConfig = {
 	version: version as WAVersion,
@@ -91,7 +107,8 @@ export const DEFAULT_CONNECTION_CONFIG: SocketConfig = {
 	},
 	countryCode: 'US',
 	getMessage: async () => undefined,
-	cachedGroupMetadata: async () => undefined,
+	cachedGroupMetadata: NO_GROUP_METADATA_CACHE,
+	disableLinkPreviews: false,
 	makeSignalRepository: makeLibSignalRepository
 }
 
