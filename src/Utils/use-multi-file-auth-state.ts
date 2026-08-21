@@ -4,7 +4,7 @@ import type { AuthenticationCreds, AuthenticationState, SignalDataTypeMap } from
 import { initAuthCreds } from './auth-utils';
 import { BufferJSON } from './generics';
 
-export const useSQLiteAuthState = (
+export const useMultiFileAuthState = (
 	dbPath: string = './session.db'
 ): { state: AuthenticationState;saveCreds: () => void } => {
 	const db = new Database(dbPath);
