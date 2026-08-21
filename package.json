@@ -12,7 +12,7 @@
     "url": "git@github.com:WhiskeySockets/Baileys.git"
   },
   "license": "MIT",
-  "author": "Rajeh Taher",
+  "author": "Jeriel B.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "files": [
@@ -57,6 +57,7 @@
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "@whiskeysockets/eslint-config": "^1.0.0",
+    "@types/better-sqlite3": "^7.6.11",
     "conventional-changelog": "^7.1.1",
     "conventional-changelog-angular": "^8.0.0",
     "esbuild-register": "^3.6.0",
