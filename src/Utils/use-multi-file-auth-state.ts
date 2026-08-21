@@ -1,12 +1,22 @@
 import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
 import { proto } from '../../WAProto/index.js';
 import type { AuthenticationCreds, AuthenticationState, SignalDataTypeMap } from '../Types';
 import { initAuthCreds } from './auth-utils';
 import { BufferJSON } from './generics';
 
 export const useMultiFileAuthState = (
-	dbPath: string = './session.db'
-): { state: AuthenticationState;saveCreds: () => void } => {
+	folder: string = 'auth_info_baileys'
+): { state: AuthenticationState; saveCreds: () => void } => {
+	// 1. Asegurar que la carpeta exista para compatibilidad con Baileys y sus tests
+	const folderPath = path.resolve(folder);
+	if (!fs.existsSync(folderPath)) {
+		fs.mkdirSync(folderPath, { recursive: true });
+	}
+
+	// 2. Apuntar el archivo SQLite dentro de esa carpeta
+	const dbPath = path.join(folderPath, 'session.db');
 	const db = new Database(dbPath);
 	
 	// Crear la tabla para guardar las credenciales y llaves
@@ -54,8 +64,7 @@ export const useMultiFileAuthState = (
 			creds,
 			keys: {
 				get: async (type, ids) => {
-					const data: {
-						[_: string]: SignalDataTypeMap[typeof type] } = {};
+					const data: { [_: string]: SignalDataTypeMap[typeof type] } = {};
 					for (const id of ids) {
 						let value = readData(`${type}-${id}`);
 						if (type === 'app-state-sync-key' && value) {
