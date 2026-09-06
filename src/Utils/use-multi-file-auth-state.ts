@@ -8,7 +8,7 @@ import { BufferJSON } from './generics';
 
 export const useMultiFileAuthState = (
 	folder: string = 'auth_info_baileys'
-): { state: AuthenticationState; saveCreds: () => void } => {
+): { state: AuthenticationState; saveCreds: () => void, close: () => void } => {
 	// 1. Asegurar que la carpeta exista para compatibilidad con Baileys y sus tests
 	const folderPath = path.resolve(folder);
 	if (!fs.existsSync(folderPath)) {
@@ -18,6 +18,11 @@ export const useMultiFileAuthState = (
 	// 2. Apuntar el archivo SQLite dentro de esa carpeta
 	const dbPath = path.join(folderPath, 'session.db');
 	const db = new Database(dbPath);
+	const close = () => {
+  	if (db.open) {
+    	db.close()
+  	}
+	}
 	
 	// Crear la tabla para guardar las credenciales y llaves
 	db.prepare(`
@@ -91,6 +96,7 @@ export const useMultiFileAuthState = (
 		},
 		saveCreds: () => {
 			writeData('creds', creds);
-		}
+		},
+		close,
 	};
 };
