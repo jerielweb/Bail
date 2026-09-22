@@ -145,7 +145,7 @@ const safeEnd = async (sock: Socket): Promise<void> => {
  * function. The first emit (or the timeout) cleans up before settling.
  */
 const waitWithTimeout = <T>(
-	subscribe: (emit: (value: T) => void) => () => void,
+	subscribe: (emit: (value: T) => void) => (() => void) | Promise<void>,
 	timeoutMs: number,
 	label: string
 ): Promise<T> =>
@@ -162,10 +162,17 @@ const waitWithTimeout = <T>(
 			reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${label}`))
 		}, timeoutMs)
 
-		unsubscribe = subscribe(value => {
+		const unsubResult = subscribe(value => {
 			cleanup()
 			resolve(value)
 		})
+		unsubscribe = () => {
+			void Promise.resolve(unsubResult).then(result => {
+				if (typeof result === 'function') {
+					result()
+				}
+			})
+		}
 	})
 
 const toError = (value: unknown): Error => (value instanceof Error ? value : new Error(String(value)))
