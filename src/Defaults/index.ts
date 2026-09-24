@@ -144,7 +144,8 @@ export const MEDIA_HKDF_KEY_MAPPING = {
 	'product-catalog-image': '',
 	'payment-bg-image': 'Payment Background',
 	ptv: 'Video',
-	'biz-cover-photo': 'Image'
+	'biz-cover-photo': 'Image',
+	'sticker-pack': 'Sticker Pack'
 }
 
 export type MediaType = keyof typeof MEDIA_HKDF_KEY_MAPPING
